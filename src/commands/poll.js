@@ -43,7 +43,11 @@ module.exports = {
     // ── /poll close ───────────────────────────────────────────────────────
     .addSubcommand(sub =>
       sub.setName('close')
-        .setDescription('Close the active poll and announce the winner')),
+        .setDescription('Close the active poll and announce the winner'))
+    // ── /poll reset ───────────────────────────────────────────────────────
+    .addSubcommand(sub =>
+      sub.setName('reset')
+        .setDescription('Force-clear a stuck or orphaned active poll (admin use)')),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
@@ -141,6 +145,19 @@ module.exports = {
       return interaction.reply({ embeds: [embed] });
     }
 
+    // ── RESET ─────────────────────────────────────────────────────────────────
+    if (sub === 'reset') {
+      const poll = db.polls.getActive.get(interaction.guildId);
+      if (!poll) {
+        return interaction.reply({ content: '📭 No active poll to reset.', ephemeral: true });
+      }
+      db.polls.close.run(poll.id);
+      return interaction.reply({
+        content: '🔄 Stuck poll has been cleared. You can now start a new one with `/poll start`.',
+        ephemeral: true,
+      });
+    }
+
     // ── CLOSE ─────────────────────────────────────────────────────────────────
     if (sub === 'close') {
       const poll = db.polls.getActive.get(interaction.guildId);
@@ -213,7 +230,7 @@ function buildStandingsEmbed(options, title, color) {
   const sorted = [...options].sort((a, b) => b.votes - a.votes);
   const total  = sorted.reduce((sum, o) => sum + o.votes, 0);
 
-  const lines = sorted.map((o, i) => {
+  const lines = sorted.map((o) => {
     const pct = total > 0 ? Math.round((o.votes / total) * 100) : 0;
     const bar = buildBar(pct);
     return `${o.emoji} **${o.title}** — ${o.votes} vote${o.votes !== 1 ? 's' : ''} (${pct}%)\n${bar}`;
@@ -222,7 +239,7 @@ function buildStandingsEmbed(options, title, color) {
   return new EmbedBuilder()
     .setColor(color)
     .setTitle(title)
-    .setDescription(lines.join('\n\n'))
+    .setDescription(lines.length ? lines.join('\n\n') : '*No options found — the poll may be corrupted. Use `/poll reset` to clear it.*')
     .setTimestamp();
 }
 
