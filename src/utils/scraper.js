@@ -10,6 +10,19 @@ function extractAsin(url) {
   return match ? match[1].toUpperCase() : null;
 }
 
+// ThriftBooks URL: /w/book-title_author-name/product-id/
+// Author is everything after the last underscore in the slug segment.
+function extractAuthorFromThriftBooksUrl(url) {
+  const match = url.match(/thriftbooks\.com\/w\/([^/]+)\//i);
+  if (!match) return '';
+  const lastUnderscore = match[1].lastIndexOf('_');
+  if (lastUnderscore === -1) return '';
+  return match[1].slice(lastUnderscore + 1)
+    .split('-')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 // Extract title slug from Amazon URL e.g. /Crescent-City-House-Earth/dp/...
 function extractTitleSlugFromAmazonUrl(url) {
   const match = url.match(/amazon\.com(?:\..*?)?\/([A-Za-z0-9-]+)\/(?:dp|product)/i);
@@ -52,7 +65,7 @@ async function fetchGoogleBooks(query) {
 }
 
 /**
- * Scrape book metadata from a Goodreads, StoryGraph, or Amazon URL.
+ * Scrape book metadata from a Goodreads, StoryGraph, Amazon, or ThriftBooks URL.
  * Falls back to og:meta tags which work on most book pages.
  */
 async function scrapeBookFromUrl(url) {
@@ -118,6 +131,34 @@ async function scrapeBookFromUrl(url) {
     const pagesText = $('p').filter((_, el) => $(el).text().includes('pages')).first().text();
     const pagesMatch = pagesText.match(/(\d+)\s*pages/i);
     if (pagesMatch) totalPages = parseInt(pagesMatch[1]);
+  }
+
+  // ── ThriftBooks ────────────────────────────────────────────────────────────
+  else if (url.includes('thriftbooks.com')) {
+    // Author is reliably encoded in the URL as /w/title_author-name/id/
+    author = extractAuthorFromThriftBooksUrl(url);
+
+    // More accurate author from page HTML
+    const pageAuthor =
+      $('[class*="contributor"] a').first().text().trim() ||
+      $('[class*="author"] a').first().text().trim() ||
+      $('a[href*="/a/"]').first().text().trim();
+    if (pageAuthor) author = pageAuthor;
+
+    // Page count from format/details section
+    const detailsText = $('[class*="format"]').text() + $('[class*="detail"]').text() + $('[class*="product"]').text();
+    const pagesMatch = detailsText.match(/(\d+)\s*pages/i);
+    if (pagesMatch) totalPages = parseInt(pagesMatch[1]);
+
+    // Strip site name from title
+    title = title.replace(/\s*\|.*$/, '').replace(/\s+-\s+ThriftBooks.*/i, '').trim();
+
+    // If og: tags gave us nothing useful, fall back to Google Books
+    if (!title || title.length < 2) {
+      const urlAuthor = extractAuthorFromThriftBooksUrl(url);
+      const gbData = await fetchGoogleBooks(`intitle:${title} inauthor:${urlAuthor}`).catch(() => null);
+      if (gbData) return { ...gbData, sourceUrl: url };
+    }
   }
 
   // ── Amazon ─────────────────────────────────────────────────────────────────
@@ -190,6 +231,7 @@ function detectPlatform(url) {
   if (url.includes('goodreads.com'))     return 'Goodreads';
   if (url.includes('thestorygraph.com')) return 'StoryGraph';
   if (url.includes('amazon.com') || url.includes('amazon.co')) return 'Amazon';
+  if (url.includes('thriftbooks.com'))   return 'ThriftBooks';
   return 'Web';
 }
 
