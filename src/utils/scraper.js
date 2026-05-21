@@ -233,6 +233,13 @@ async function scrapeBookFromUrl(url) {
 
   if (!title || title.length < 2) throw new Error('Could not extract a book title from that URL.');
 
+  // Supplement missing description via Google Books
+  if (!description && title) {
+    const q = [title, author].filter(Boolean).join(' ');
+    const gbData = await fetchGoogleBooks(q).catch(() => null);
+    if (gbData?.description) description = gbData.description;
+  }
+
   return {
     title:       title.slice(0, 200),
     author:      author.slice(0, 200) || 'Unknown Author',
