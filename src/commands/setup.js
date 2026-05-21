@@ -271,7 +271,7 @@ function buildStep(step, guildId) {
       embeds: [
         new EmbedBuilder()
           .setColor(0x6B46C1)
-          .setTitle('📚 Welcome to Book Club Bot!')
+          .setTitle('📚 Welcome to Verso!')
           .setDescription(
             'Let\'s get your server set up in 3 quick steps.\n\n' +
             '**Step 1 — Bot nickname**\n' +

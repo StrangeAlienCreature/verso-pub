@@ -133,7 +133,7 @@ module.exports = {
       }
 
       if (rest.length) {
-        lines.push(`📚 **Library** (${rest.length} book${rest.length !== 1 ? 's' : ''})`);
+        lines.push(`📚 **Upcoming Books** (${rest.length} book${rest.length !== 1 ? 's' : ''})`);
         rest.forEach(b => {
           lines.push(`\`${String(b.id).padStart(3)}\` **${b.title}** — ${b.author}` +
             (b.total_pages ? ` *(${b.total_pages}p)*` : ''));
