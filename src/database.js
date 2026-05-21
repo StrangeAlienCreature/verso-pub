@@ -92,6 +92,27 @@ db.exec(`
     updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(guild_id, user_id, book_id)
   );
+
+  -- Did-not-finish records
+  CREATE TABLE IF NOT EXISTS dnf (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id            TEXT    NOT NULL,
+    user_id             TEXT    NOT NULL,
+    book_id             INTEGER NOT NULL REFERENCES books(id),
+    stopped_at_percent  REAL,
+    note                TEXT,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(guild_id, user_id, book_id)
+  );
+
+  -- Content warnings attached to books
+  CREATE TABLE IF NOT EXISTS content_warnings (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id   INTEGER NOT NULL REFERENCES books(id),
+    warning   TEXT    NOT NULL,
+    added_by  TEXT    NOT NULL,
+    added_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // ─── Books ───────────────────────────────────────────────────────────────────
