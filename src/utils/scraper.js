@@ -18,16 +18,18 @@ function extractAsin(url) {
 }
 
 // ThriftBooks URL: /w/book-title_author-name/product-id/
-// Author is everything after the last underscore in the slug segment.
-function extractAuthorFromThriftBooksUrl(url) {
+// Returns { title, author } extracted from the URL slug.
+function extractFromThriftBooksUrl(url) {
   const match = url.match(/thriftbooks\.com\/w\/([^/]+)\//i);
-  if (!match) return '';
-  const lastUnderscore = match[1].lastIndexOf('_');
-  if (lastUnderscore === -1) return '';
-  return match[1].slice(lastUnderscore + 1)
-    .split('-')
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
+  if (!match) return {};
+  const slug = match[1];
+  const lastUnderscore = slug.lastIndexOf('_');
+  const slugToWords = s => s.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  if (lastUnderscore === -1) return { title: slugToWords(slug) };
+  return {
+    title:  slugToWords(slug.slice(0, lastUnderscore)),
+    author: slugToWords(slug.slice(lastUnderscore + 1)),
+  };
 }
 
 // Extract title slug from Amazon URL e.g. /Crescent-City-House-Earth/dp/...
@@ -141,31 +143,25 @@ async function scrapeBookFromUrl(url) {
   }
 
   // ── ThriftBooks ────────────────────────────────────────────────────────────
+  // ThriftBooks blocks scraper requests (406), so extract title+author from the
+  // URL slug and look up full metadata via Google Books instead.
   else if (url.includes('thriftbooks.com')) {
-    // Author is reliably encoded in the URL as /w/title_author-name/id/
-    author = extractAuthorFromThriftBooksUrl(url);
-
-    // More accurate author from page HTML
-    const pageAuthor =
-      $('[class*="contributor"] a').first().text().trim() ||
-      $('[class*="author"] a').first().text().trim() ||
-      $('a[href*="/a/"]').first().text().trim();
-    if (pageAuthor) author = pageAuthor;
-
-    // Page count from format/details section
-    const detailsText = $('[class*="format"]').text() + $('[class*="detail"]').text() + $('[class*="product"]').text();
-    const pagesMatch = detailsText.match(/(\d+)\s*pages/i);
-    if (pagesMatch) totalPages = parseInt(pagesMatch[1]);
-
-    // Strip site name from title
-    title = title.replace(/\s*\|.*$/, '').replace(/\s+-\s+ThriftBooks.*/i, '').trim();
-
-    // If og: tags gave us nothing useful, fall back to Google Books
-    if (!title || title.length < 2) {
-      const urlAuthor = extractAuthorFromThriftBooksUrl(url);
-      const gbData = await fetchGoogleBooks(`intitle:${title} inauthor:${urlAuthor}`).catch(() => null);
+    const { title: slugTitle, author: slugAuthor } = extractFromThriftBooksUrl(url);
+    if (slugTitle) {
+      const query = slugAuthor ? `intitle:${slugTitle} inauthor:${slugAuthor}` : `intitle:${slugTitle}`;
+      const gbData = await fetchGoogleBooks(query).catch(() => null);
       if (gbData) return { ...gbData, sourceUrl: url };
+      // Google Books found nothing — return what we have from the URL
+      return {
+        title:       slugTitle.slice(0, 200),
+        author:      (slugAuthor || 'Unknown Author').slice(0, 200),
+        coverUrl:    null,
+        description: null,
+        totalPages:  null,
+        sourceUrl:   url,
+      };
     }
+    throw new Error('Could not extract book info from that ThriftBooks URL.');
   }
 
   // ── Amazon ─────────────────────────────────────────────────────────────────
