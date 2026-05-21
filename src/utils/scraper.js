@@ -10,6 +10,15 @@ function extractAsin(url) {
   return match ? match[1].toUpperCase() : null;
 }
 
+// Extract title slug from Amazon URL e.g. /Crescent-City-House-Earth/dp/...
+function extractTitleSlugFromAmazonUrl(url) {
+  const match = url.match(/amazon\.com(?:\..*?)?\/([A-Za-z0-9-]+)\/(?:dp|product)/i);
+  if (!match) return null;
+  const slug = match[1].replace(/-/g, ' ').trim();
+  // Ignore slugs that look like ASINs or are too short
+  return slug.length > 4 && !/^[A-Z0-9]{10}$/i.test(slug) ? slug : null;
+}
+
 async function fetchOpenLibrary(isbn) {
   const { data } = await axios.get(
     `https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`,
@@ -23,6 +32,22 @@ async function fetchOpenLibrary(isbn) {
     coverUrl:    book.cover?.large || book.cover?.medium || null,
     description: (book.description?.value ?? book.description) || null,
     totalPages:  book.number_of_pages || null,
+  };
+}
+
+async function fetchGoogleBooks(query) {
+  const { data } = await axios.get(
+    `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1`,
+    { headers: { 'User-Agent': USER_AGENT }, timeout: 8000 }
+  );
+  const item = data.items?.[0]?.volumeInfo;
+  if (!item) return null;
+  return {
+    title:       item.title,
+    author:      item.authors?.[0] || '',
+    coverUrl:    item.imageLinks?.thumbnail?.replace('http:', 'https:') || null,
+    description: item.description || null,
+    totalPages:  item.pageCount || null,
   };
 }
 
@@ -53,50 +78,71 @@ async function scrapeBookFromUrl(url) {
 
   // ── Goodreads ──────────────────────────────────────────────────────────────
   if (url.includes('goodreads.com')) {
-    // Author — new GR layout
     author =
       $('[data-testid="name"]').first().text().trim() ||
       $('[itemprop="author"] [itemprop="name"]').first().text().trim() ||
       $('.authorName span[itemprop="name"]').first().text().trim();
 
-    // Pages
     const pagesText =
       $('[data-testid="pagesFormat"]').text() ||
       $('[itemprop="numberOfPages"]').text();
     const pagesMatch = pagesText.match(/(\d+)\s*pages/i);
     if (pagesMatch) totalPages = parseInt(pagesMatch[1]);
 
-    // Clean title — GR often appends "by Author Name"
+    // GR often appends "by Author Name" to og:title
     title = title.replace(/\s+by\s+.+$/, '').trim();
   }
 
   // ── StoryGraph ─────────────────────────────────────────────────────────────
   else if (url.includes('thestorygraph.com')) {
-    // Book detail page
-    author =
-      $('.book-title-author-and-series a').first().text().trim() ||
-      $('p.font-bold').first().text().trim();
+    // og:title is typically "Book Title by Author Name | The StoryGraph"
+    // Extract author from that before stripping it
+    const rawTitle = ogTitle || '';
+    const stripped = rawTitle.replace(/\s*\|\s*The StoryGraph$/i, '').trim();
+    const byIdx = stripped.lastIndexOf(' by ');
+    if (byIdx > 0) {
+      title  = stripped.slice(0, byIdx).trim();
+      author = stripped.slice(byIdx + 4).trim();
+    } else {
+      title = stripped;
+    }
 
-    const pagesText = $('p.font-sans').filter((_, el) => $(el).text().includes('pages')).first().text();
+    // CSS selector fallbacks in case the og:title format changes
+    if (!author) {
+      author =
+        $('[class*="book-title-author"] a').first().text().trim() ||
+        $('a[href*="/authors/"]').first().text().trim() ||
+        $('p.font-bold').first().text().trim();
+    }
+
+    const pagesText = $('p').filter((_, el) => $(el).text().includes('pages')).first().text();
     const pagesMatch = pagesText.match(/(\d+)\s*pages/i);
     if (pagesMatch) totalPages = parseInt(pagesMatch[1]);
-
-    title = title.replace(/\s*\|\s*The StoryGraph$/, '').trim();
   }
 
   // ── Amazon ─────────────────────────────────────────────────────────────────
   else if (url.includes('amazon.com') || url.includes('amazon.co')) {
-    // Amazon blocks scrapers aggressively, so try Open Library via ASIN first.
-    // Print-book ASINs are ISBN-10s; Kindle ASINs start with 'B' and won't match.
     const asin = extractAsin(url);
+
+    // Print-book ASINs are ISBN-10s — try Open Library first, then Google Books
     if (asin && !/^B/i.test(asin)) {
       const olData = await fetchOpenLibrary(asin).catch(() => null);
-      if (olData) {
-        return { ...olData, sourceUrl: url };
+      if (olData) return { ...olData, sourceUrl: url };
+
+      const gbData = await fetchGoogleBooks(`isbn:${asin}`).catch(() => null);
+      if (gbData) return { ...gbData, sourceUrl: url };
+    }
+
+    // Kindle ASIN (B...) — search Google Books by title slug from URL
+    if (asin && /^B/i.test(asin)) {
+      const titleSlug = extractTitleSlugFromAmazonUrl(url);
+      if (titleSlug) {
+        const gbData = await fetchGoogleBooks(`intitle:${titleSlug}`).catch(() => null);
+        if (gbData) return { ...gbData, sourceUrl: url };
       }
     }
 
-    // Fallback: best-effort HTML parse (may get blocked by Amazon)
+    // Last resort: best-effort HTML parse (often blocked by Amazon)
     author =
       $('#bylineInfo .author a').first().text().trim() ||
       $('#bylineInfo span.a-color-secondary').first().text().replace(/^by\s+/i, '').trim();
@@ -112,8 +158,7 @@ async function scrapeBookFromUrl(url) {
 
     if (!author && !title) {
       throw new Error(
-        "Amazon blocked the request (likely a CAPTCHA). " +
-        "Try a Goodreads or StoryGraph link instead, or add the book manually with `/book add` and the `pages` option."
+        'Amazon blocked the request. Try a Goodreads or StoryGraph link instead.'
       );
     }
   }
