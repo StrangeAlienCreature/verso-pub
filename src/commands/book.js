@@ -6,7 +6,7 @@ const {
   ButtonStyle,
 } = require('discord.js');
 const db = require('../database');
-const { scrapeBookFromUrl, detectPlatform, fetchBookByIsbn } = require('../utils/scraper');
+const { scrapeBookFromUrl, fetchBookByIsbn } = require('../utils/scraper');
 
 // Number emojis for display
 const NUM_EMOJI = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
@@ -102,7 +102,6 @@ module.exports = {
 
       const pages = interaction.options.getInteger('pages');
       let bookData;
-      let platform;
 
       try {
         if (sub === 'isbn') {
@@ -110,10 +109,8 @@ module.exports = {
           bookData = await fetchBookByIsbn(isbn);
           if (!bookData) return interaction.editReply(`❌ No book found for ISBN \`${isbn}\`. Double-check the number and try again.`);
           bookData.sourceUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn.replace(/[-\s]/g, '')}`;
-          platform = 'ISBN';
         } else {
           const url = interaction.options.getString('url').trim();
-          platform  = detectPlatform(url);
           bookData  = await scrapeBookFromUrl(url);
         }
       } catch (err) {
@@ -140,7 +137,6 @@ module.exports = {
         .addFields(
           { name: 'Author',   value: bookData.author,                           inline: true },
           { name: 'Book ID',  value: `\`${result.lastInsertRowid}\``,           inline: true },
-          { name: 'Source',   value: platform,                                  inline: true },
         )
         .setFooter({ text: `Added by ${interaction.user.displayName}` })
         .setTimestamp();
@@ -151,7 +147,8 @@ module.exports = {
       if (bookData.description) embed.setDescription(bookData.description);
       if (bookData.coverUrl) embed.setThumbnail(bookData.coverUrl);
 
-      return interaction.editReply({ embeds: [embed] });
+      const buttons = buildBookButtons(bookData.title, bookData.author);
+      return interaction.editReply({ embeds: [embed], components: [buttons] });
     }
 
     // ── LIST ─────────────────────────────────────────────────────────────────
@@ -202,7 +199,8 @@ module.exports = {
         db.books.setCurrent.run(bookId, interaction.guildId);
 
         const embed = buildBookEmbed(book, `✅ Now reading: ${book.title}`);
-        return interaction.reply({ embeds: [embed] });
+        const buttons = buildBookButtons(book.title, book.author);
+        return interaction.reply({ embeds: [embed], components: [buttons] });
       }
 
       const current = db.books.getCurrent.get(interaction.guildId);
@@ -211,7 +209,8 @@ module.exports = {
       }
 
       const embed = buildBookEmbed(current, `📖 Currently Reading`);
-      return interaction.reply({ embeds: [embed] });
+      const buttons = buildBookButtons(current.title, current.author);
+      return interaction.reply({ embeds: [embed], components: [buttons] });
     }
 
     // ── INFO ──────────────────────────────────────────────────────────────────
@@ -222,7 +221,8 @@ module.exports = {
       if (!book) return interaction.reply({ content: `❌ No book with ID \`${bookId}\` found.`, ephemeral: true });
 
       const embed = buildBookEmbed(book, book.is_current ? `📖 ${book.title} (Current Book)` : `📚 ${book.title}`);
-      return interaction.reply({ embeds: [embed] });
+      const buttons = buildBookButtons(book.title, book.author);
+      return interaction.reply({ embeds: [embed], components: [buttons] });
     }
 
     // ── SETPAGES ──────────────────────────────────────────────────────────────
@@ -252,6 +252,28 @@ module.exports = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+function buildBookButtons(title, author) {
+  const query = encodeURIComponent(`${title} ${author}`);
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setLabel('Amazon')
+      .setStyle(ButtonStyle.Link)
+      .setURL(`https://www.amazon.com/s?k=${query}`),
+    new ButtonBuilder()
+      .setLabel('ThriftBooks')
+      .setStyle(ButtonStyle.Link)
+      .setURL(`https://www.thriftbooks.com/browse/?b.search=${query}`),
+    new ButtonBuilder()
+      .setLabel('Barnes & Noble')
+      .setStyle(ButtonStyle.Link)
+      .setURL(`https://www.barnesandnoble.com/s/${query}`),
+    new ButtonBuilder()
+      .setLabel('Goodreads')
+      .setStyle(ButtonStyle.Link)
+      .setURL(`https://www.goodreads.com/search?q=${query}`),
+  );
+}
+
 function buildBookEmbed(book, title) {
   const embed = new EmbedBuilder()
     .setColor(0x6B46C1)
@@ -266,8 +288,7 @@ function buildBookEmbed(book, title) {
   if (genreText) embed.addFields({ name: 'Genres', value: genreText, inline: false });
   const descText = truncateLines(book.description, 15);
   if (descText) embed.setDescription(descText);
-  if (book.cover_url)  embed.setThumbnail(book.cover_url);
-  if (book.source_url) embed.addFields({ name: 'Link', value: `[View Book](${book.source_url})`, inline: false });
+  if (book.cover_url) embed.setThumbnail(book.cover_url);
 
   embed.setTimestamp();
   return embed;
