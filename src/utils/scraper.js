@@ -107,6 +107,7 @@ async function scrapeBookFromUrl(url) {
   let coverUrl    = ogImage || null;
   let description = ogDescription || null;
   let totalPages  = null;
+  let genres      = [];
 
   // ── Goodreads ──────────────────────────────────────────────────────────────
   if (url.includes('goodreads.com')) {
@@ -233,12 +234,15 @@ async function scrapeBookFromUrl(url) {
 
   if (!title || title.length < 2) throw new Error('Could not extract a book title from that URL.');
 
-  // Supplement missing or short description via Google Books
-  if ((!description || description.length < 200) && title) {
+  // Supplement missing/short description and genres via Google Books
+  if ((!description || description.length < 200 || !genres.length) && title) {
     const q = [title, author].filter(Boolean).join(' ');
     const gbData = await fetchGoogleBooks(q).catch(() => null);
-    if (gbData?.description && gbData.description.length > (description?.length ?? 0)) {
-      description = gbData.description;
+    if (gbData) {
+      if (gbData.description && gbData.description.length > (description?.length ?? 0)) {
+        description = gbData.description;
+      }
+      if (!genres.length && gbData.genres?.length) genres = gbData.genres;
     }
   }
 
@@ -246,9 +250,9 @@ async function scrapeBookFromUrl(url) {
     title:       title.slice(0, 200),
     author:      author.slice(0, 200) || 'Unknown Author',
     coverUrl,
-    description: description ? description.slice(0, 1200) : null,
+    description: description ? description.slice(0, 1500) : null,
     totalPages,
-    genres:      [],
+    genres,
     sourceUrl:   url,
   };
 }

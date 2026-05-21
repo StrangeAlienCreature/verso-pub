@@ -148,8 +148,7 @@ module.exports = {
       if (bookData.totalPages) embed.addFields({ name: 'Pages', value: `${bookData.totalPages}`, inline: true });
       const genreText = formatGenres(bookData.genres);
       if (genreText) embed.addFields({ name: 'Genres', value: genreText, inline: false });
-      const descText = truncateLines(bookData.description, 15);
-      if (descText) embed.setDescription(descText);
+      if (bookData.description) embed.setDescription(bookData.description);
       if (bookData.coverUrl) embed.setThumbnail(bookData.coverUrl);
 
       return interaction.editReply({ embeds: [embed] });
