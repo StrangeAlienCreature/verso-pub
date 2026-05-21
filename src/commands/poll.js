@@ -6,6 +6,20 @@ const db = require('../database');
 
 const NUM_EMOJI = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣'];
 
+function truncateLines(text, lines) {
+  if (!text) return null;
+  const limit = lines * 65;
+  return text.length <= limit ? text : text.slice(0, limit).replace(/\s+\S*$/, '') + '…';
+}
+
+function formatGenres(genresJson) {
+  if (!genresJson) return null;
+  try {
+    const arr = typeof genresJson === 'string' ? JSON.parse(genresJson) : genresJson;
+    return arr.length ? arr.map(g => `\`${g}\``).join(' ') : null;
+  } catch { return null; }
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('poll')
@@ -76,7 +90,14 @@ module.exports = {
       const pollTitle = interaction.options.getString('title') || '📊 Book Club Vote — What should we read next?';
 
       // Build embed
-      const lines = books.map((b, i) => `${NUM_EMOJI[i]} **${b.title}**\n    *${b.author}*${b.total_pages ? ` · ${b.total_pages}p` : ''}`);
+      const lines = books.map((b, i) => {
+        let entry = `${NUM_EMOJI[i]} **${b.title}**\n*${b.author}*${b.total_pages ? ` · ${b.total_pages}p` : ''}`;
+        const desc = truncateLines(b.description, 3);
+        if (desc) entry += `\n${desc}`;
+        const genres = formatGenres(b.genres);
+        if (genres) entry += `\n${genres}`;
+        return entry;
+      });
 
       const embed = new EmbedBuilder()
         .setColor(0x6B46C1)

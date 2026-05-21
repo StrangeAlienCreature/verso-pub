@@ -48,12 +48,17 @@ async function fetchOpenLibrary(isbn) {
   );
   const book = data[`ISBN:${isbn}`];
   if (!book) return null;
+  const genres = (book.subjects || [])
+    .map(s => (typeof s === 'string' ? s : s.name || '').trim())
+    .filter(s => s && s.length <= 35 && !/^\d/.test(s))
+    .slice(0, 3);
   return {
     title:       book.title,
     author:      book.authors?.[0]?.name || '',
     coverUrl:    book.cover?.large || book.cover?.medium || null,
     description: (book.description?.value ?? book.description) || null,
     totalPages:  book.number_of_pages || null,
+    genres,
   };
 }
 
@@ -64,12 +69,17 @@ async function fetchGoogleBooks(query) {
   );
   const item = data.items?.[0]?.volumeInfo;
   if (!item) return null;
+  const genres = (item.categories || [])
+    .flatMap(c => c.split('/').map(p => p.trim()))
+    .filter(s => s && s.length <= 35)
+    .slice(0, 3);
   return {
     title:       item.title,
     author:      item.authors?.[0] || '',
     coverUrl:    item.imageLinks?.thumbnail?.replace('http:', 'https:') || null,
     description: item.description || null,
     totalPages:  item.pageCount || null,
+    genres,
   };
 }
 
@@ -223,6 +233,7 @@ async function scrapeBookFromUrl(url) {
     coverUrl,
     description: description ? description.slice(0, 600) : null,
     totalPages,
+    genres:      [],
     sourceUrl:   url,
   };
 }

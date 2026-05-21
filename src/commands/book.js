@@ -11,6 +11,20 @@ const { scrapeBookFromUrl, detectPlatform, fetchBookByIsbn } = require('../utils
 // Number emojis for display
 const NUM_EMOJI = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
 
+function truncateLines(text, lines) {
+  if (!text) return null;
+  const limit = lines * 65;
+  return text.length <= limit ? text : text.slice(0, limit).replace(/\s+\S*$/, '') + '…';
+}
+
+function formatGenres(genresJson) {
+  if (!genresJson) return null;
+  try {
+    const arr = typeof genresJson === 'string' ? JSON.parse(genresJson) : genresJson;
+    return arr.length ? arr.map(g => `\`${g}\``).join(' ') : null;
+  } catch { return null; }
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('book')
@@ -117,6 +131,7 @@ module.exports = {
         source_url:  bookData.sourceUrl,
         total_pages: bookData.totalPages,
         added_by:    interaction.user.id,
+        genres:      JSON.stringify(bookData.genres || []),
       });
 
       const embed = new EmbedBuilder()
@@ -131,7 +146,10 @@ module.exports = {
         .setTimestamp();
 
       if (bookData.totalPages) embed.addFields({ name: 'Pages', value: `${bookData.totalPages}`, inline: true });
-      if (bookData.description) embed.setDescription(bookData.description.slice(0, 600) + (bookData.description.length > 600 ? '…' : ''));
+      const genreText = formatGenres(bookData.genres);
+      if (genreText) embed.addFields({ name: 'Genres', value: genreText, inline: false });
+      const descText = truncateLines(bookData.description, 5);
+      if (descText) embed.setDescription(descText);
       if (bookData.coverUrl) embed.setThumbnail(bookData.coverUrl);
 
       return interaction.editReply({ embeds: [embed] });
@@ -245,9 +263,12 @@ function buildBookEmbed(book, title) {
     );
 
   if (book.total_pages) embed.addFields({ name: 'Pages', value: `${book.total_pages}`, inline: true });
-  if (book.description) embed.setDescription(book.description.slice(0, 600) + (book.description?.length > 600 ? '…' : ''));
-  if (book.cover_url)   embed.setThumbnail(book.cover_url);
-  if (book.source_url)  embed.addFields({ name: 'Link', value: `[View Book](${book.source_url})`, inline: false });
+  const genreText = formatGenres(book.genres);
+  if (genreText) embed.addFields({ name: 'Genres', value: genreText, inline: false });
+  const descText = truncateLines(book.description, 5);
+  if (descText) embed.setDescription(descText);
+  if (book.cover_url)  embed.setThumbnail(book.cover_url);
+  if (book.source_url) embed.addFields({ name: 'Link', value: `[View Book](${book.source_url})`, inline: false });
 
   embed.setTimestamp();
   return embed;

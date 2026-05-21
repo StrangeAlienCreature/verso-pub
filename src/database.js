@@ -11,6 +11,8 @@ const db = new Database(path.join(DB_DIR, 'bookclub.db'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+try { db.exec(`ALTER TABLE books ADD COLUMN genres TEXT`); } catch {}
+
 db.exec(`
   -- Server book list
   CREATE TABLE IF NOT EXISTS books (
@@ -130,8 +132,8 @@ db.exec(`
 
 const bookQueries = {
   add: db.prepare(`
-    INSERT INTO books (guild_id, title, author, cover_url, description, source_url, total_pages, added_by)
-    VALUES (@guild_id, @title, @author, @cover_url, @description, @source_url, @total_pages, @added_by)
+    INSERT INTO books (guild_id, title, author, cover_url, description, source_url, total_pages, added_by, genres)
+    VALUES (@guild_id, @title, @author, @cover_url, @description, @source_url, @total_pages, @added_by, @genres)
   `),
   list: db.prepare(`
     SELECT * FROM books WHERE guild_id = ? ORDER BY is_current DESC, added_at DESC
@@ -159,9 +161,9 @@ const pollQueries = {
     INSERT INTO poll_options (poll_id, book_id, emoji) VALUES (?, ?, ?)
   `),
   getOptions: db.prepare(`
-    SELECT po.*, b.title, b.author, b.cover_url 
-    FROM poll_options po 
-    JOIN books b ON b.id = po.book_id 
+    SELECT po.*, b.title, b.author, b.cover_url, b.description, b.genres
+    FROM poll_options po
+    JOIN books b ON b.id = po.book_id
     WHERE po.poll_id = ?
     ORDER BY po.emoji
   `),
