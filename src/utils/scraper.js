@@ -5,6 +5,27 @@ const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+function extractAsin(url) {
+  const match = url.match(/\/(?:dp|product|gp\/product)\/([A-Z0-9]{10})/i);
+  return match ? match[1].toUpperCase() : null;
+}
+
+async function fetchOpenLibrary(isbn) {
+  const { data } = await axios.get(
+    `https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`,
+    { headers: { 'User-Agent': USER_AGENT }, timeout: 8000 }
+  );
+  const book = data[`ISBN:${isbn}`];
+  if (!book) return null;
+  return {
+    title:       book.title,
+    author:      book.authors?.[0]?.name || '',
+    coverUrl:    book.cover?.large || book.cover?.medium || null,
+    description: (book.description?.value ?? book.description) || null,
+    totalPages:  book.number_of_pages || null,
+  };
+}
+
 /**
  * Scrape book metadata from a Goodreads, StoryGraph, or Amazon URL.
  * Falls back to og:meta tags which work on most book pages.
@@ -65,22 +86,36 @@ async function scrapeBookFromUrl(url) {
 
   // ── Amazon ─────────────────────────────────────────────────────────────────
   else if (url.includes('amazon.com') || url.includes('amazon.co')) {
+    // Amazon blocks scrapers aggressively, so try Open Library via ASIN first.
+    // Print-book ASINs are ISBN-10s; Kindle ASINs start with 'B' and won't match.
+    const asin = extractAsin(url);
+    if (asin && !/^B/i.test(asin)) {
+      const olData = await fetchOpenLibrary(asin).catch(() => null);
+      if (olData) {
+        return { ...olData, sourceUrl: url };
+      }
+    }
+
+    // Fallback: best-effort HTML parse (may get blocked by Amazon)
     author =
       $('#bylineInfo .author a').first().text().trim() ||
       $('#bylineInfo span.a-color-secondary').first().text().replace(/^by\s+/i, '').trim();
 
-    // Print length / pages
-    const printLength = $('li.rpi-attribute-childAsin-label:contains("pages"), ' +
-                          '#detailBullets_feature_div li, ' +
-                          '#productDetailsTable').text();
+    const printLength = ($('#detailBullets_feature_div').text() + $('#productDetailsTable').text());
     const pagesMatch = printLength.match(/(\d+)\s*pages/i);
     if (pagesMatch) totalPages = parseInt(pagesMatch[1]);
 
-    // Amazon titles are usually clean but may have subtitle after colon
     title = title
       .replace(/\s*-\s*(Amazon\.com|Buy|Kindle).*$/i, '')
-      .replace(/:\s+.{60,}$/, '') // trim very long subtitles
+      .replace(/:\s+.{60,}$/, '')
       .trim();
+
+    if (!author && !title) {
+      throw new Error(
+        "Amazon blocked the request (likely a CAPTCHA). " +
+        "Try a Goodreads or StoryGraph link instead, or add the book manually with `/book add` and the `pages` option."
+      );
+    }
   }
 
   // ── Generic fallback author ────────────────────────────────────────────────

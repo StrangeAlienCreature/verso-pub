@@ -424,7 +424,7 @@ async function sendWelcomeMessage(guild) {
 
   const embed = new EmbedBuilder()
     .setColor(0x6B46C1)
-    .setTitle('📚 Book Club Bot has arrived!')
+    .setTitle('📚 Verso has arrived!')
     .setDescription(
       'Thanks for adding me! I help book clubs track reading progress, run polls, and connect reading profiles.\n\n' +
       '**To get started**, a server admin should run:\n' +

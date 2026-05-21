@@ -107,7 +107,7 @@ module.exports = {
         .setTimestamp();
 
       if (bookData.totalPages) embed.addFields({ name: 'Pages', value: `${bookData.totalPages}`, inline: true });
-      if (bookData.description) embed.setDescription(bookData.description.slice(0, 300) + (bookData.description.length > 300 ? '…' : ''));
+      if (bookData.description) embed.setDescription(bookData.description.slice(0, 600) + (bookData.description.length > 600 ? '…' : ''));
       if (bookData.coverUrl) embed.setThumbnail(bookData.coverUrl);
 
       return interaction.editReply({ embeds: [embed] });
@@ -221,7 +221,7 @@ function buildBookEmbed(book, title) {
     );
 
   if (book.total_pages) embed.addFields({ name: 'Pages', value: `${book.total_pages}`, inline: true });
-  if (book.description) embed.setDescription(book.description.slice(0, 400) + (book.description?.length > 400 ? '…' : ''));
+  if (book.description) embed.setDescription(book.description.slice(0, 600) + (book.description?.length > 600 ? '…' : ''));
   if (book.cover_url)   embed.setThumbnail(book.cover_url);
   if (book.source_url)  embed.addFields({ name: 'Link', value: `[View Book](${book.source_url})`, inline: false });
 
