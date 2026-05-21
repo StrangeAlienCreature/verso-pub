@@ -161,31 +161,43 @@ module.exports = {
 
       const current = books.find(b => b.is_current);
       const rest    = books.filter(b => !b.is_current);
+      const allBooks = [...(current ? [current] : []), ...rest];
+      const shown    = allBooks.slice(0, 10);
+      const overflow = allBooks.length - shown.length;
 
-      const lines = [];
-      if (current) {
-        lines.push(`📖 **Currently Reading**`);
-        lines.push(`\`${String(current.id).padStart(3)}\` **${current.title}** — ${current.author}` +
-          (current.total_pages ? ` *(${current.total_pages}p)*` : ''));
-        lines.push('');
-      }
+      let upcomingLabelGiven = false;
+      const embeds = shown.map(b => {
+        const isCurrent = !!b.is_current;
+        const meta = [`by **${b.author}**`];
+        if (b.total_pages) meta.push(`${b.total_pages}p`);
+        meta.push(`ID \`${b.id}\``);
 
-      if (rest.length) {
-        lines.push(`📚 **Upcoming Books** (${rest.length} book${rest.length !== 1 ? 's' : ''})`);
-        rest.forEach(b => {
-          lines.push(`\`${String(b.id).padStart(3)}\` **${b.title}** — ${b.author}` +
-            (b.total_pages ? ` *(${b.total_pages}p)*` : ''));
-        });
-      }
+        const embed = new EmbedBuilder()
+          .setColor(isCurrent ? 0x22C55E : 0x6B46C1)
+          .setTitle(b.title)
+          .setDescription(meta.join(' · '));
 
-      const embed = new EmbedBuilder()
-        .setColor(0x6B46C1)
-        .setTitle(`📚 ${interaction.guild.name} Book Club Library`)
-        .setDescription(lines.join('\n'))
-        .setFooter({ text: 'Use /book info <id> for details · /poll start to run a vote' })
-        .setTimestamp();
+        if (b.cover_url) embed.setThumbnail(b.cover_url);
 
-      return interaction.reply({ embeds: [embed] });
+        if (isCurrent) {
+          embed.setAuthor({ name: '📖 Currently Reading' });
+        } else if (!upcomingLabelGiven) {
+          upcomingLabelGiven = true;
+          embed.setAuthor({ name: `📚 Upcoming (${rest.length} book${rest.length !== 1 ? 's' : ''})` });
+        }
+
+        return embed;
+      });
+
+      const footerText = overflow
+        ? `+${overflow} more not shown · /book info <id> for details`
+        : 'Use /book info <id> for details · /poll start to run a vote';
+      embeds[embeds.length - 1].setFooter({ text: footerText }).setTimestamp();
+
+      return interaction.reply({
+        content: `## 📚 ${interaction.guild.name} Book Club Library`,
+        embeds,
+      });
     }
 
     // ── CURRENT ───────────────────────────────────────────────────────────────
