@@ -181,7 +181,13 @@ async function scrapeBookFromUrl(url) {
     // Print-book ASINs are ISBN-10s — try Open Library first, then Google Books
     if (asin && !/^B/i.test(asin)) {
       const olData = await fetchOpenLibrary(asin).catch(() => null);
-      if (olData) return { ...olData, sourceUrl: url };
+      if (olData) {
+        if (!olData.description) {
+          const gbData = await fetchGoogleBooks(`isbn:${asin}`).catch(() => null);
+          if (gbData?.description) olData.description = gbData.description;
+        }
+        return { ...olData, sourceUrl: url };
+      }
 
       const gbData = await fetchGoogleBooks(`isbn:${asin}`).catch(() => null);
       if (gbData) return { ...gbData, sourceUrl: url };
@@ -283,7 +289,13 @@ async function fetchBookByIsbn(raw) {
   if (!/^\d{9}[\dX]$|^\d{13}$/.test(isbn)) return null;
 
   const olData = await fetchOpenLibrary(isbn).catch(() => null);
-  if (olData) return olData;
+  if (olData) {
+    if (!olData.description) {
+      const gbData = await fetchGoogleBooks(`isbn:${isbn}`).catch(() => null);
+      if (gbData?.description) olData.description = gbData.description;
+    }
+    return olData;
+  }
 
   return fetchGoogleBooks(`isbn:${isbn}`);
 }
