@@ -5,6 +5,22 @@ const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+const GOOGLE_BOOKS_KEY = process.env.GOOGLE_BOOKS_API_KEY || null;
+
+function googleBooksUrl(params) {
+  const url = new URL('https://www.googleapis.com/books/v1/volumes');
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  if (GOOGLE_BOOKS_KEY) url.searchParams.set('key', GOOGLE_BOOKS_KEY);
+  return url.toString();
+}
+
+function handleGoogleBooksError(err) {
+  if (err.response?.status === 429) {
+    throw new Error('Google Books rate limit reached. Wait a moment and try again, or add a `GOOGLE_BOOKS_API_KEY` to your `.env` for a higher quota.');
+  }
+  throw err;
+}
+
 const BROWSER_HEADERS = {
   'User-Agent':      USER_AGENT,
   'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -65,9 +81,9 @@ async function fetchOpenLibrary(isbn) {
 
 async function fetchGoogleBooks(query) {
   const { data } = await axios.get(
-    `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1`,
+    googleBooksUrl({ q: query, maxResults: 1 }),
     { headers: { 'User-Agent': USER_AGENT }, timeout: 8000 }
-  );
+  ).catch(handleGoogleBooksError);
   const item = data.items?.[0]?.volumeInfo;
   if (!item) return null;
   const genres = (item.categories || [])
@@ -87,9 +103,9 @@ async function fetchGoogleBooks(query) {
 
 async function searchBooksByTitle(query, maxResults = 5) {
   const { data } = await axios.get(
-    `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=${maxResults}&printType=books`,
+    googleBooksUrl({ q: query, maxResults, printType: 'books' }),
     { headers: { 'User-Agent': USER_AGENT }, timeout: 8000 }
-  );
+  ).catch(handleGoogleBooksError);
   return (data.items || []).map(item => {
     const v = item.volumeInfo;
     const genres = (v.categories || [])
