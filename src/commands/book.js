@@ -6,10 +6,17 @@ const {
   ButtonStyle,
 } = require('discord.js');
 const db = require('../database');
-const { scrapeBookFromUrl, fetchBookByIsbn } = require('../utils/scraper');
+const { scrapeBookFromUrl, fetchBookByIsbn, searchBooksByTitle } = require('../utils/scraper');
 
-// Number emojis for display
 const NUM_EMOJI = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+
+// Button custom ID prefixes — userId is appended so only the requester can confirm
+const BTN_ADD    = 'book_confirm_add';
+const BTN_NEXT   = 'book_confirm_next';
+const BTN_CANCEL = 'book_confirm_cancel';
+
+// In-memory store for pending search confirmations: userId → { results, index, pages, guildId }
+const pendingSearches = new Map();
 
 function truncateLines(text, lines) {
   if (!text) return null;
@@ -25,6 +32,24 @@ function formatGenres(genresJson) {
   } catch { return null; }
 }
 
+function formatPublishedDate(dateStr) {
+  if (!dateStr) return null;
+  const parts = dateStr.split('-');
+  if (parts.length === 1) return parts[0];
+  try {
+    const d = new Date(dateStr.length === 7 ? dateStr + '-01' : dateStr);
+    return d.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch { return dateStr; }
+}
+
+function formatAddedAt(addedAt) {
+  if (!addedAt) return null;
+  try {
+    const d = new Date(addedAt.replace(' ', 'T') + 'Z');
+    return d.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch { return null; }
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('book')
@@ -33,6 +58,17 @@ module.exports = {
     .addSubcommandGroup(group =>
       group.setName('add')
         .setDescription('Add a book to the server library')
+        .addSubcommand(sub =>
+          sub.setName('search')
+            .setDescription('Search for a book by title to add')
+            .addStringOption(opt =>
+              opt.setName('name')
+                .setDescription('Book title to search for')
+                .setRequired(true))
+            .addIntegerOption(opt =>
+              opt.setName('pages')
+                .setDescription('Total pages (override if not detected)')
+                .setRequired(false)))
         .addSubcommand(sub =>
           sub.setName('url')
             .setDescription('Add a book via URL (Goodreads, ThriftBooks, Amazon)')
@@ -99,44 +135,70 @@ module.exports = {
     // ── ADD ──────────────────────────────────────────────────────────────────
     if (subGroup === 'add') {
       await interaction.deferReply();
-
       const pages = interaction.options.getInteger('pages');
-      let bookData;
 
+      // ── SEARCH ─────────────────────────────────────────────────────────────
+      if (sub === 'search') {
+        const query = interaction.options.getString('name').trim();
+        let results;
+        try {
+          results = await searchBooksByTitle(query, 5);
+        } catch (err) {
+          return interaction.editReply(`❌ Search failed: ${err.message}`);
+        }
+
+        if (!results.length) {
+          return interaction.editReply(`❌ No books found for **"${query}"**. Try a different title, or use \`/book add isbn\`.`);
+        }
+
+        pendingSearches.set(interaction.user.id, {
+          results,
+          index: 0,
+          pages,
+          guildId: interaction.guildId,
+        });
+
+        const { embed, components } = buildSearchConfirmEmbed(results[0], 0, results.length, interaction.user.id);
+        return interaction.editReply({ embeds: [embed], components });
+      }
+
+      // ── URL / ISBN ──────────────────────────────────────────────────────────
+      let bookData;
       try {
         if (sub === 'isbn') {
           const isbn = interaction.options.getString('isbn').trim();
           bookData = await fetchBookByIsbn(isbn);
           if (!bookData) return interaction.editReply(`❌ No book found for ISBN \`${isbn}\`. Double-check the number and try again.`);
-          bookData.sourceUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn.replace(/[-\s]/g, '')}`;
+          bookData.sourceUrl = `https://books.google.com/books?q=isbn:${isbn.replace(/[-\s]/g, '')}`;
         } else {
           const url = interaction.options.getString('url').trim();
           bookData  = await scrapeBookFromUrl(url);
         }
       } catch (err) {
-        return interaction.editReply(`❌ **Couldn't fetch book info:** ${err.message}\n\nTry \`/book add isbn\` instead.`);
+        return interaction.editReply(`❌ **Couldn't fetch book info:** ${err.message}\n\nTry \`/book add isbn\` or \`/book add search\` instead.`);
       }
 
       if (pages) bookData.totalPages = pages;
 
       const result = db.books.add.run({
-        guild_id:    interaction.guildId,
-        title:       bookData.title,
-        author:      bookData.author,
-        cover_url:   bookData.coverUrl,
-        description: bookData.description,
-        source_url:  bookData.sourceUrl,
-        total_pages: bookData.totalPages,
-        added_by:    interaction.user.id,
-        genres:      JSON.stringify(bookData.genres || []),
+        guild_id:       interaction.guildId,
+        title:          bookData.title,
+        author:         bookData.author,
+        cover_url:      bookData.coverUrl,
+        description:    bookData.description,
+        source_url:     bookData.sourceUrl,
+        total_pages:    bookData.totalPages,
+        added_by:       interaction.user.id,
+        genres:         JSON.stringify(bookData.genres || []),
+        published_date: bookData.publishedDate || null,
       });
 
       const embed = new EmbedBuilder()
         .setColor(0x6B46C1)
         .setTitle(`📚 Added: ${bookData.title}`)
         .addFields(
-          { name: 'Author',   value: bookData.author,                           inline: true },
-          { name: 'Book ID',  value: `\`${result.lastInsertRowid}\``,           inline: true },
+          { name: 'Author',   value: bookData.author,                         inline: true },
+          { name: 'Book ID',  value: `\`${result.lastInsertRowid}\``,         inline: true },
         )
         .setFooter({ text: `Added by ${interaction.user.displayName}` })
         .setTimestamp();
@@ -144,7 +206,7 @@ module.exports = {
       if (bookData.totalPages) embed.addFields({ name: 'Pages', value: `${bookData.totalPages}`, inline: true });
       const genreText = formatGenres(bookData.genres);
       if (genreText) embed.addFields({ name: 'Genres', value: genreText, inline: false });
-      if (bookData.description) embed.setDescription(bookData.description);
+      if (bookData.description) embed.setDescription(truncateLines(bookData.description, 6));
       if (bookData.coverUrl) embed.setThumbnail(bookData.coverUrl);
 
       const buttons = buildBookButtons(bookData.title, bookData.author);
@@ -156,7 +218,7 @@ module.exports = {
       const books = db.books.list.all(interaction.guildId);
 
       if (!books.length) {
-        return interaction.reply({ content: '📭 The library is empty. Add a book with `/book add url` or `/book add isbn`!', ephemeral: true });
+        return interaction.reply({ content: '📭 The library is empty. Add a book with `/book add search`, `/book add url`, or `/book add isbn`!', ephemeral: true });
       }
 
       const current = books.find(b => b.is_current);
@@ -260,9 +322,179 @@ module.exports = {
       return interaction.reply(`🗑️ Removed **${book.title}** from the library.`);
     }
   },
+
+  async handleInteraction(interaction) {
+    if (!interaction.isButton()) return;
+    const { customId, user, guildId } = interaction;
+
+    // ── CONFIRM ADD ───────────────────────────────────────────────────────────
+    if (customId.startsWith(`${BTN_ADD}:`)) {
+      const ownerId = customId.split(':')[1];
+      if (user.id !== ownerId) {
+        return interaction.reply({ content: '❌ This isn\'t your search — run `/book add search` to start your own.', ephemeral: true });
+      }
+
+      const pending = pendingSearches.get(ownerId);
+      if (!pending) {
+        return interaction.reply({ content: '❌ This search has expired. Please run `/book add search` again.', ephemeral: true });
+      }
+
+      const bookData = pending.results[pending.index];
+      if (pending.pages) bookData.totalPages = pending.pages;
+      pendingSearches.delete(ownerId);
+
+      const result = db.books.add.run({
+        guild_id:       guildId,
+        title:          bookData.title,
+        author:         bookData.author,
+        cover_url:      bookData.coverUrl,
+        description:    bookData.description,
+        source_url:     bookData.sourceUrl,
+        total_pages:    bookData.totalPages,
+        added_by:       user.id,
+        genres:         JSON.stringify(bookData.genres || []),
+        published_date: bookData.publishedDate || null,
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor(0x6B46C1)
+        .setAuthor({ name: 'Book Added!' })
+        .setTitle(bookData.title)
+        .setURL(bookData.sourceUrl);
+
+      const desc = truncateLines(bookData.description, 6);
+      if (desc) embed.setDescription(desc);
+
+      embed.addFields(
+        { name: 'Author',  value: bookData.author || 'Unknown',            inline: true },
+        { name: 'Pages',   value: bookData.totalPages ? `${bookData.totalPages}` : 'Unknown', inline: true },
+        { name: 'Book ID', value: `\`${result.lastInsertRowid}\``,         inline: true },
+      );
+
+      const pub = formatPublishedDate(bookData.publishedDate);
+      if (pub) embed.addFields({ name: 'Published', value: pub, inline: true });
+      embed.addFields(
+        { name: 'Submitted By', value: `<@${user.id}>`,                            inline: true },
+        { name: 'Submitted On', value: new Date().toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' }), inline: true },
+      );
+
+      const genreText = formatGenres(bookData.genres);
+      if (genreText) embed.addFields({ name: 'Genres', value: genreText });
+      if (bookData.coverUrl) embed.setImage(bookData.coverUrl);
+      embed.setTimestamp();
+
+      const buttons = buildBookButtons(bookData.title, bookData.author);
+      return interaction.update({ embeds: [embed], components: [buttons] });
+    }
+
+    // ── NEXT RESULT ───────────────────────────────────────────────────────────
+    if (customId.startsWith(`${BTN_NEXT}:`)) {
+      const ownerId = customId.split(':')[1];
+      if (user.id !== ownerId) {
+        return interaction.reply({ content: '❌ This isn\'t your search — run `/book add search` to start your own.', ephemeral: true });
+      }
+
+      const pending = pendingSearches.get(ownerId);
+      if (!pending) {
+        return interaction.reply({ content: '❌ This search has expired. Please run `/book add search` again.', ephemeral: true });
+      }
+
+      pending.index = (pending.index + 1) % pending.results.length;
+      const { embed, components } = buildSearchConfirmEmbed(pending.results[pending.index], pending.index, pending.results.length, ownerId);
+      return interaction.update({ embeds: [embed], components });
+    }
+
+    // ── CANCEL ────────────────────────────────────────────────────────────────
+    if (customId.startsWith(`${BTN_CANCEL}:`)) {
+      const ownerId = customId.split(':')[1];
+      if (user.id !== ownerId) {
+        return interaction.reply({ content: '❌ This isn\'t your search.', ephemeral: true });
+      }
+
+      pendingSearches.delete(ownerId);
+      const embed = new EmbedBuilder().setColor(0x6B46C1).setTitle('Search cancelled.');
+      return interaction.update({ embeds: [embed], components: [] });
+    }
+  },
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+function buildSearchConfirmEmbed(bookData, index, total, userId) {
+  const embed = new EmbedBuilder()
+    .setColor(0x6B46C1)
+    .setAuthor({ name: `Result ${index + 1} of ${total} · Is this the right book?` })
+    .setTitle(bookData.title)
+    .setURL(bookData.sourceUrl);
+
+  const desc = truncateLines(bookData.description, 6);
+  if (desc) embed.setDescription(desc);
+
+  embed.addFields(
+    { name: 'Author', value: bookData.author || 'Unknown', inline: true },
+    { name: 'Pages',  value: bookData.totalPages ? `${bookData.totalPages}` : 'Unknown', inline: true },
+  );
+
+  const pub = formatPublishedDate(bookData.publishedDate);
+  if (pub) embed.addFields({ name: 'Published', value: pub, inline: true });
+
+  const genreText = formatGenres(bookData.genres);
+  if (genreText) embed.addFields({ name: 'Genres', value: genreText });
+
+  if (bookData.coverUrl) embed.setImage(bookData.coverUrl);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${BTN_ADD}:${userId}`)
+      .setLabel('Yes, add this book')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`${BTN_NEXT}:${userId}`)
+      .setLabel(total > 1 ? `Next result` : 'Search again')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`${BTN_CANCEL}:${userId}`)
+      .setLabel('Cancel')
+      .setStyle(ButtonStyle.Danger),
+  );
+
+  return { embed, components: [row] };
+}
+
+function buildBookEmbed(book, title) {
+  const embed = new EmbedBuilder()
+    .setColor(book.is_current ? 0x22C55E : 0x6B46C1)
+    .setTitle(title);
+
+  if (book.source_url && !book.source_url.includes('googleapis.com')) {
+    embed.setURL(book.source_url);
+  }
+
+  const descText = truncateLines(book.description, 6);
+  if (descText) embed.setDescription(descText);
+
+  // Row 1: Author | Pages | Book ID
+  embed.addFields({ name: 'Author', value: book.author || 'Unknown', inline: true });
+  if (book.total_pages) embed.addFields({ name: 'Pages', value: `${book.total_pages}`, inline: true });
+  embed.addFields({ name: 'Book ID', value: `\`${book.id}\``, inline: true });
+
+  // Row 2: Published | Submitted By | Submitted On
+  const pub = formatPublishedDate(book.published_date);
+  if (pub) embed.addFields({ name: 'Published', value: pub, inline: true });
+  if (book.added_by) embed.addFields({ name: 'Submitted By', value: `<@${book.added_by}>`, inline: true });
+  const addedOn = formatAddedAt(book.added_at);
+  if (addedOn) embed.addFields({ name: 'Submitted On', value: addedOn, inline: true });
+
+  // Row 3: Status
+  embed.addFields({ name: 'Status', value: book.is_current ? '📖 Currently Reading' : '📚 Upcoming', inline: true });
+
+  const genreText = formatGenres(book.genres);
+  if (genreText) embed.addFields({ name: 'Genres', value: genreText });
+
+  if (book.cover_url) embed.setImage(book.cover_url);
+  embed.setTimestamp();
+  return embed;
+}
 
 function buildBookButtons(title, author) {
   const query = encodeURIComponent(`${title} ${author}`);
@@ -284,24 +516,4 @@ function buildBookButtons(title, author) {
       .setStyle(ButtonStyle.Link)
       .setURL(`https://www.goodreads.com/search?q=${query}`),
   );
-}
-
-function buildBookEmbed(book, title) {
-  const embed = new EmbedBuilder()
-    .setColor(0x6B46C1)
-    .setTitle(title)
-    .addFields(
-      { name: 'Author', value: book.author || 'Unknown', inline: true },
-      { name: 'ID',     value: `\`${book.id}\``,          inline: true },
-    );
-
-  if (book.total_pages) embed.addFields({ name: 'Pages', value: `${book.total_pages}`, inline: true });
-  const genreText = formatGenres(book.genres);
-  if (genreText) embed.addFields({ name: 'Genres', value: genreText, inline: false });
-  const descText = truncateLines(book.description, 15);
-  if (descText) embed.setDescription(descText);
-  if (book.cover_url) embed.setThumbnail(book.cover_url);
-
-  embed.setTimestamp();
-  return embed;
 }

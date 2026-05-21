@@ -12,6 +12,7 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 try { db.exec(`ALTER TABLE books ADD COLUMN genres TEXT`); } catch {}
+try { db.exec(`ALTER TABLE books ADD COLUMN published_date TEXT`); } catch {}
 
 db.exec(`
   -- Server book list
@@ -132,8 +133,8 @@ db.exec(`
 
 const bookQueries = {
   add: db.prepare(`
-    INSERT INTO books (guild_id, title, author, cover_url, description, source_url, total_pages, added_by, genres)
-    VALUES (@guild_id, @title, @author, @cover_url, @description, @source_url, @total_pages, @added_by, @genres)
+    INSERT INTO books (guild_id, title, author, cover_url, description, source_url, total_pages, added_by, genres, published_date)
+    VALUES (@guild_id, @title, @author, @cover_url, @description, @source_url, @total_pages, @added_by, @genres, @published_date)
   `),
   list: db.prepare(`
     SELECT * FROM books WHERE guild_id = ? ORDER BY is_current DESC, added_at DESC

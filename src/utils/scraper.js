@@ -53,11 +53,12 @@ async function fetchOpenLibrary(isbn) {
     .filter(s => s && s.length <= 35 && !/^\d/.test(s))
     .slice(0, 3);
   return {
-    title:       book.title,
-    author:      book.authors?.[0]?.name || '',
-    coverUrl:    book.cover?.large || book.cover?.medium || null,
-    description: (book.description?.value ?? book.description) || null,
-    totalPages:  book.number_of_pages || null,
+    title:         book.title,
+    author:        book.authors?.[0]?.name || '',
+    coverUrl:      book.cover?.large || book.cover?.medium || null,
+    description:   (book.description?.value ?? book.description) || null,
+    totalPages:    book.number_of_pages || null,
+    publishedDate: book.publish_date || null,
     genres,
   };
 }
@@ -74,13 +75,38 @@ async function fetchGoogleBooks(query) {
     .filter(s => s && s.length <= 35)
     .slice(0, 3);
   return {
-    title:       item.title,
-    author:      item.authors?.[0] || '',
-    coverUrl:    item.imageLinks?.thumbnail?.replace('http:', 'https:') || null,
-    description: item.description || null,
-    totalPages:  item.pageCount || null,
+    title:         item.title,
+    author:        item.authors?.[0] || '',
+    coverUrl:      item.imageLinks?.thumbnail?.replace('http:', 'https:') || null,
+    description:   item.description || null,
+    totalPages:    item.pageCount || null,
+    publishedDate: item.publishedDate || null,
     genres,
   };
+}
+
+async function searchBooksByTitle(query, maxResults = 5) {
+  const { data } = await axios.get(
+    `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=${maxResults}&printType=books`,
+    { headers: { 'User-Agent': USER_AGENT }, timeout: 8000 }
+  );
+  return (data.items || []).map(item => {
+    const v = item.volumeInfo;
+    const genres = (v.categories || [])
+      .flatMap(c => c.split('/').map(p => p.trim()))
+      .filter(s => s && s.length <= 35)
+      .slice(0, 3);
+    return {
+      title:         v.title || 'Unknown Title',
+      author:        v.authors?.[0] || 'Unknown Author',
+      coverUrl:      v.imageLinks?.thumbnail?.replace('http:', 'https:') || null,
+      description:   v.description || null,
+      totalPages:    v.pageCount || null,
+      publishedDate: v.publishedDate || null,
+      genres,
+      sourceUrl:     `https://books.google.com/books?id=${item.id}`,
+    };
+  });
 }
 
 /**
@@ -102,12 +128,13 @@ async function scrapeBookFromUrl(url) {
   const ogDescription = $('meta[property="og:description"]').attr('content')?.trim();
   const ogImage       = $('meta[property="og:image"]').attr('content')?.trim();
 
-  let title       = ogTitle || $('title').text().trim();
-  let author      = '';
-  let coverUrl    = ogImage || null;
-  let description = ogDescription || null;
-  let totalPages  = null;
-  let genres      = [];
+  let title         = ogTitle || $('title').text().trim();
+  let author        = '';
+  let coverUrl      = ogImage || null;
+  let description   = ogDescription || null;
+  let totalPages    = null;
+  let publishedDate = null;
+  let genres        = [];
 
   // ── Goodreads ──────────────────────────────────────────────────────────────
   if (url.includes('goodreads.com')) {
@@ -243,8 +270,8 @@ async function scrapeBookFromUrl(url) {
 
   if (!title || title.length < 2) throw new Error('Could not extract a book title from that URL.');
 
-  // Supplement missing/short description and genres via Google Books
-  if ((!description || description.length < 200 || !genres.length) && title) {
+  // Supplement missing/short description, genres, and publishedDate via Google Books
+  if ((!description || description.length < 200 || !genres.length || !publishedDate) && title) {
     const q = [title, author].filter(Boolean).join(' ');
     const gbData = await fetchGoogleBooks(q).catch(() => null);
     if (gbData) {
@@ -252,17 +279,19 @@ async function scrapeBookFromUrl(url) {
         description = gbData.description;
       }
       if (!genres.length && gbData.genres?.length) genres = gbData.genres;
+      if (!publishedDate && gbData.publishedDate) publishedDate = gbData.publishedDate;
     }
   }
 
   return {
-    title:       title.slice(0, 200),
-    author:      author.slice(0, 200) || 'Unknown Author',
+    title:         title.slice(0, 200),
+    author:        author.slice(0, 200) || 'Unknown Author',
     coverUrl,
-    description: description ? description.slice(0, 1500) : null,
+    description:   description ? description.slice(0, 1500) : null,
     totalPages,
+    publishedDate,
     genres,
-    sourceUrl:   url,
+    sourceUrl:     url,
   };
 }
 
@@ -330,4 +359,4 @@ async function fetchBookByIsbn(raw) {
   return null;
 }
 
-module.exports = { scrapeBookFromUrl, detectPlatform, fetchGoodreadsCurrentlyReading, fetchBookByIsbn };
+module.exports = { scrapeBookFromUrl, detectPlatform, fetchGoodreadsCurrentlyReading, fetchBookByIsbn, searchBooksByTitle };

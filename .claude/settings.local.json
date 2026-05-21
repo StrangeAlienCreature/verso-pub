@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node src/deploy-commands.js)",
+      "Bash(node --use-system-ca src/deploy-commands.js)"
+    ]
+  }
+}

@@ -42,11 +42,18 @@ client.once(Events.ClientReady, () => {
 
 // ── Slash Command + Button + Modal Handler ────────────────────────────────────
 client.on(Events.InteractionCreate, async interaction => {
-  // Route buttons and modals to the setup wizard
+  // Route buttons and modals to the appropriate handler
   if (interaction.isButton() || interaction.isModalSubmit()) {
-    const setup = client.commands.get('setup');
-    if (setup?.handleInteraction) {
-      await setup.handleInteraction(interaction).catch(console.error);
+    if (interaction.isButton() && interaction.customId.startsWith('book_')) {
+      const book = client.commands.get('book');
+      if (book?.handleInteraction) {
+        await book.handleInteraction(interaction).catch(console.error);
+      }
+    } else {
+      const setup = client.commands.get('setup');
+      if (setup?.handleInteraction) {
+        await setup.handleInteraction(interaction).catch(console.error);
+      }
     }
     return;
   }
