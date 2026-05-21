@@ -127,6 +127,13 @@ db.exec(`
     label         TEXT,
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  -- Live list message per guild (auto-updated when books change)
+  CREATE TABLE IF NOT EXISTS list_messages (
+    guild_id    TEXT PRIMARY KEY,
+    channel_id  TEXT NOT NULL,
+    message_id  TEXT NOT NULL
+  );
 `);
 
 // ─── Books ───────────────────────────────────────────────────────────────────
@@ -335,10 +342,19 @@ const removeBook = db.transaction((id, guild_id) => {
 });
 bookQueries.remove = { run: removeBook };
 
+// ─── List Messages ────────────────────────────────────────────────────────────
+
+const listMessageQueries = {
+  upsert: db.prepare(`INSERT OR REPLACE INTO list_messages (guild_id, channel_id, message_id) VALUES (?, ?, ?)`),
+  get:    db.prepare(`SELECT * FROM list_messages WHERE guild_id = ?`),
+  clear:  db.prepare(`DELETE FROM list_messages WHERE guild_id = ?`),
+};
+
 // patch existing exports
 Object.assign(module.exports, {
-  ratings: ratingQueries,
-  dnf:     dnfQueries,
-  cw:      cwQueries,
-  threads: threadQueries,
+  ratings:      ratingQueries,
+  dnf:          dnfQueries,
+  cw:           cwQueries,
+  threads:      threadQueries,
+  listMessages: listMessageQueries,
 });

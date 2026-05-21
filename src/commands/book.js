@@ -210,7 +210,9 @@ module.exports = {
       if (bookData.coverUrl) embed.setThumbnail(bookData.coverUrl);
 
       const buttons = buildBookButtons(bookData.title, bookData.author);
-      return interaction.editReply({ embeds: [embed], components: [buttons] });
+      await interaction.editReply({ embeds: [embed], components: [buttons] });
+      refreshListMessage(interaction.guildId, interaction.client).catch(() => {});
+      return;
     }
 
     // ── LIST ─────────────────────────────────────────────────────────────────
@@ -221,45 +223,12 @@ module.exports = {
         return interaction.reply({ content: '📭 The library is empty. Add a book with `/book add search`, `/book add url`, or `/book add isbn`!', ephemeral: true });
       }
 
-      const current = books.find(b => b.is_current);
-      const rest    = books.filter(b => !b.is_current);
-      const allBooks = [...(current ? [current] : []), ...rest];
-      const shown    = allBooks.slice(0, 10);
-      const overflow = allBooks.length - shown.length;
-
-      let upcomingLabelGiven = false;
-      const embeds = shown.map(b => {
-        const isCurrent = !!b.is_current;
-        const meta = [`by **${b.author}**`];
-        if (b.total_pages) meta.push(`${b.total_pages}p`);
-        meta.push(`ID \`${b.id}\``);
-
-        const embed = new EmbedBuilder()
-          .setColor(isCurrent ? 0x22C55E : 0x6B46C1)
-          .setTitle(b.title)
-          .setDescription(meta.join(' · '));
-
-        if (b.cover_url) embed.setThumbnail(b.cover_url);
-
-        if (isCurrent) {
-          embed.setAuthor({ name: '📖 Currently Reading' });
-        } else if (!upcomingLabelGiven) {
-          upcomingLabelGiven = true;
-          embed.setAuthor({ name: `📚 Upcoming (${rest.length} book${rest.length !== 1 ? 's' : ''})` });
-        }
-
-        return embed;
+      const msg = await interaction.reply({
+        ...buildListPayload(books, interaction.guild.name),
+        fetchReply: true,
       });
-
-      const footerText = overflow
-        ? `+${overflow} more not shown · /book info <id> for details`
-        : 'Use /book info <id> for details · /poll start to run a vote';
-      embeds[embeds.length - 1].setFooter({ text: footerText }).setTimestamp();
-
-      return interaction.reply({
-        content: `## 📚 ${interaction.guild.name} Book Club Library`,
-        embeds,
-      });
+      db.listMessages.upsert.run(interaction.guildId, interaction.channelId, msg.id);
+      return;
     }
 
     // ── CURRENT ───────────────────────────────────────────────────────────────
@@ -274,7 +243,9 @@ module.exports = {
 
         const embed = buildBookEmbed(book, `✅ Now reading: ${book.title}`);
         const buttons = buildBookButtons(book.title, book.author);
-        return interaction.reply({ embeds: [embed], components: [buttons] });
+        await interaction.reply({ embeds: [embed], components: [buttons] });
+        refreshListMessage(interaction.guildId, interaction.client).catch(() => {});
+        return;
       }
 
       const current = db.books.getCurrent.get(interaction.guildId);
@@ -308,7 +279,9 @@ module.exports = {
       if (!book) return interaction.reply({ content: `❌ No book with ID \`${bookId}\` found.`, ephemeral: true });
 
       db.books.updatePages.run(pages, bookId, interaction.guildId);
-      return interaction.reply(`✅ Updated **${book.title}** to **${pages} pages**.`);
+      await interaction.reply(`✅ Updated **${book.title}** to **${pages} pages**.`);
+      refreshListMessage(interaction.guildId, interaction.client).catch(() => {});
+      return;
     }
 
     // ── REMOVE ────────────────────────────────────────────────────────────────
@@ -319,7 +292,9 @@ module.exports = {
       if (!book) return interaction.reply({ content: `❌ No book with ID \`${bookId}\` found.`, ephemeral: true });
 
       db.books.remove.run(bookId, interaction.guildId);
-      return interaction.reply(`🗑️ Removed **${book.title}** from the library.`);
+      await interaction.reply(`🗑️ Removed **${book.title}** from the library.`);
+      refreshListMessage(interaction.guildId, interaction.client).catch(() => {});
+      return;
     }
   },
 
@@ -384,7 +359,9 @@ module.exports = {
       embed.setTimestamp();
 
       const buttons = buildBookButtons(bookData.title, bookData.author);
-      return interaction.update({ embeds: [embed], components: [buttons] });
+      await interaction.update({ embeds: [embed], components: [buttons] });
+      refreshListMessage(guildId, interaction.client).catch(() => {});
+      return;
     }
 
     // ── NEXT RESULT ───────────────────────────────────────────────────────────
@@ -494,6 +471,66 @@ function buildBookEmbed(book, title) {
   if (book.cover_url) embed.setImage(book.cover_url);
   embed.setTimestamp();
   return embed;
+}
+
+function buildListPayload(books, guildName) {
+  const current  = books.find(b => b.is_current);
+  const rest     = books.filter(b => !b.is_current);
+  const allBooks = [...(current ? [current] : []), ...rest];
+  const shown    = allBooks.slice(0, 10);
+  const overflow = allBooks.length - shown.length;
+
+  let upcomingLabelGiven = false;
+  const embeds = shown.map(b => {
+    const isCurrent = !!b.is_current;
+    const meta = [`by **${b.author}**`];
+    if (b.total_pages) meta.push(`${b.total_pages}p`);
+    meta.push(`ID \`${b.id}\``);
+
+    const embed = new EmbedBuilder()
+      .setColor(isCurrent ? 0x22C55E : 0x6B46C1)
+      .setTitle(b.title)
+      .setDescription(meta.join(' · '));
+
+    if (b.cover_url) embed.setThumbnail(b.cover_url);
+
+    if (isCurrent) {
+      embed.setAuthor({ name: '📖 Currently Reading' });
+    } else if (!upcomingLabelGiven) {
+      upcomingLabelGiven = true;
+      embed.setAuthor({ name: `📚 Upcoming (${rest.length} book${rest.length !== 1 ? 's' : ''})` });
+    }
+
+    return embed;
+  });
+
+  const footerText = overflow
+    ? `+${overflow} more not shown · /book info <id> for details`
+    : 'Use /book info <id> for details · /poll start to run a vote';
+  embeds[embeds.length - 1].setFooter({ text: footerText }).setTimestamp();
+
+  return { content: `## 📚 ${guildName} Book Club Library`, embeds };
+}
+
+async function refreshListMessage(guildId, client) {
+  const stored = db.listMessages.get.get(guildId);
+  if (!stored) return;
+
+  try {
+    const channel = await client.channels.fetch(stored.channel_id);
+    const message = await channel.messages.fetch(stored.message_id);
+    const books   = db.books.list.all(guildId);
+
+    if (!books.length) {
+      await message.edit({ content: '📭 The library is empty. Add a book with `/book add`!', embeds: [] });
+      return;
+    }
+
+    const guild = client.guilds.cache.get(guildId) ?? await client.guilds.fetch(guildId);
+    await message.edit(buildListPayload(books, guild.name));
+  } catch {
+    db.listMessages.clear.run(guildId);
+  }
 }
 
 function buildBookButtons(title, author) {
