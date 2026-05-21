@@ -1,0 +1,21 @@
+{
+  "name": "bookclub-bot",
+  "version": "1.0.0",
+  "description": "A Discord bot for book clubs with StoryGraph/Goodreads integration",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "better-sqlite3": "^9.4.0",
+    "cheerio": "^1.0.0",
+    "discord.js": "^14.14.0",
+    "dotenv": "^16.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  }
+}
