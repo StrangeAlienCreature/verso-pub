@@ -80,6 +80,18 @@ db.exec(`
     note        TEXT,
     logged_at   DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  -- Book ratings and reviews
+  CREATE TABLE IF NOT EXISTS ratings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id    TEXT    NOT NULL,
+    user_id     TEXT    NOT NULL,
+    book_id     INTEGER NOT NULL REFERENCES books(id),
+    stars       REAL    NOT NULL,
+    review      TEXT,
+    updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(guild_id, user_id, book_id)
+  );
 `);
 
 // ─── Books ───────────────────────────────────────────────────────────────────
