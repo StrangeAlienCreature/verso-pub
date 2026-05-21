@@ -263,4 +263,14 @@ async function fetchGoodreadsCurrentlyReading(userId) {
   }
 }
 
-module.exports = { scrapeBookFromUrl, detectPlatform, fetchGoodreadsCurrentlyReading };
+/**
+ * Look up a book by ISBN-10 or ISBN-13 via Google Books.
+ * Strips hyphens/spaces before querying.
+ */
+async function fetchBookByIsbn(raw) {
+  const isbn = raw.replace(/[-\s]/g, '');
+  if (!/^\d{9}[\dX]$|^\d{13}$/.test(isbn)) return null;
+  return fetchGoogleBooks(`isbn:${isbn}`);
+}
+
+module.exports = { scrapeBookFromUrl, detectPlatform, fetchGoodreadsCurrentlyReading, fetchBookByIsbn };
