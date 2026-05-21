@@ -5,6 +5,13 @@ const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+const BROWSER_HEADERS = {
+  'User-Agent':      USER_AGENT,
+  'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br',
+};
+
 function extractAsin(url) {
   const match = url.match(/\/(?:dp|product|gp\/product)\/([A-Z0-9]{10})/i);
   return match ? match[1].toUpperCase() : null;
@@ -70,7 +77,7 @@ async function fetchGoogleBooks(query) {
  */
 async function scrapeBookFromUrl(url) {
   const { data: html } = await axios.get(url, {
-    headers: { 'User-Agent': USER_AGENT },
+    headers: BROWSER_HEADERS,
     timeout: 12000,
   }).catch(err => {
     throw new Error(`Could not load the page: ${err.message}`);
