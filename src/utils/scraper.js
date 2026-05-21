@@ -183,9 +183,18 @@ async function scrapeBookFromUrl(url) {
     if (asin && !/^B/i.test(asin)) {
       const olData = await fetchOpenLibrary(asin).catch(() => null);
       if (olData) {
-        if (!olData.description) {
-          const gbData = await fetchGoogleBooks(`isbn:${asin}`).catch(() => null);
-          if (gbData?.description) olData.description = gbData.description;
+        if (!olData.description || !olData.genres?.length) {
+          const gbIsbn = await fetchGoogleBooks(`isbn:${asin}`).catch(() => null);
+          if (gbIsbn) {
+            if (!olData.description && gbIsbn.description) olData.description = gbIsbn.description;
+            if (!olData.genres?.length && gbIsbn.genres?.length) olData.genres = gbIsbn.genres;
+          }
+          if (!olData.description && olData.title) {
+            const q = [olData.title, olData.author].filter(Boolean).join(' ');
+            const gbTitle = await fetchGoogleBooks(q).catch(() => null);
+            if (gbTitle?.description) olData.description = gbTitle.description;
+            if (!olData.genres?.length && gbTitle?.genres?.length) olData.genres = gbTitle.genres;
+          }
         }
         return { ...olData, sourceUrl: url };
       }
