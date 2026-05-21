@@ -16,17 +16,31 @@ module.exports = {
     .setName('book')
     .setDescription('Manage the server book list')
     // ── /book add ─────────────────────────────────────────────────────────
-    .addSubcommand(sub =>
-      sub.setName('add')
-        .setDescription('Add a book via URL or ISBN')
-        .addStringOption(opt =>
-          opt.setName('url')
-            .setDescription('Book URL (Goodreads, ThriftBooks, Amazon) or ISBN (10 or 13 digits)')
-            .setRequired(true))
-        .addIntegerOption(opt =>
-          opt.setName('pages')
-            .setDescription('Total pages (if not automatically detected)')
-            .setRequired(false)))
+    .addSubcommandGroup(group =>
+      group.setName('add')
+        .setDescription('Add a book to the server library')
+        .addSubcommand(sub =>
+          sub.setName('url')
+            .setDescription('Add a book via URL (Goodreads, ThriftBooks, Amazon)')
+            .addStringOption(opt =>
+              opt.setName('url')
+                .setDescription('Paste the book URL')
+                .setRequired(true))
+            .addIntegerOption(opt =>
+              opt.setName('pages')
+                .setDescription('Total pages (if not automatically detected)')
+                .setRequired(false)))
+        .addSubcommand(sub =>
+          sub.setName('isbn')
+            .setDescription('Add a book by ISBN')
+            .addStringOption(opt =>
+              opt.setName('isbn')
+                .setDescription('ISBN-10 or ISBN-13 (hyphens optional, e.g. 9780765326355)')
+                .setRequired(true))
+            .addIntegerOption(opt =>
+              opt.setName('pages')
+                .setDescription('Total pages (if not automatically detected)')
+                .setRequired(false))))
     // ── /book list ────────────────────────────────────────────────────────
     .addSubcommand(sub =>
       sub.setName('list')
@@ -65,32 +79,31 @@ module.exports = {
             .setRequired(true))),
 
   async execute(interaction) {
-    const sub = interaction.options.getSubcommand();
+    const subGroup = interaction.options.getSubcommandGroup(false);
+    const sub      = interaction.options.getSubcommand();
 
     // ── ADD ──────────────────────────────────────────────────────────────────
-    if (sub === 'add') {
+    if (subGroup === 'add') {
       await interaction.deferReply();
 
-      const input = interaction.options.getString('url').trim();
       const pages = interaction.options.getInteger('pages');
-
-      // Detect ISBN (10 or 13 digits, hyphens allowed)
-      const isIsbn = /^[\d\-]{10,17}$/.test(input) && /\d{9}[\dX]|\d{13}/.test(input.replace(/[-\s]/g, ''));
-
       let bookData;
       let platform;
+
       try {
-        if (isIsbn) {
-          bookData = await fetchBookByIsbn(input);
-          if (!bookData) return interaction.editReply(`❌ No book found for ISBN \`${input}\`. Double-check the number and try again.`);
-          bookData.sourceUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${input.replace(/[-\s]/g, '')}`;
+        if (sub === 'isbn') {
+          const isbn = interaction.options.getString('isbn').trim();
+          bookData = await fetchBookByIsbn(isbn);
+          if (!bookData) return interaction.editReply(`❌ No book found for ISBN \`${isbn}\`. Double-check the number and try again.`);
+          bookData.sourceUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn.replace(/[-\s]/g, '')}`;
           platform = 'ISBN';
         } else {
-          platform = detectPlatform(input);
-          bookData = await scrapeBookFromUrl(input);
+          const url = interaction.options.getString('url').trim();
+          platform  = detectPlatform(url);
+          bookData  = await scrapeBookFromUrl(url);
         }
       } catch (err) {
-        return interaction.editReply(`❌ **Couldn't fetch book info:** ${err.message}\n\nTry a Goodreads link or paste the ISBN instead.`);
+        return interaction.editReply(`❌ **Couldn't fetch book info:** ${err.message}\n\nTry \`/book add isbn\` instead.`);
       }
 
       if (pages) bookData.totalPages = pages;
@@ -129,7 +142,7 @@ module.exports = {
       const books = db.books.list.all(interaction.guildId);
 
       if (!books.length) {
-        return interaction.reply({ content: '📭 The library is empty. Add a book with `/book add <url>`!', ephemeral: true });
+        return interaction.reply({ content: '📭 The library is empty. Add a book with `/book add url` or `/book add isbn`!', ephemeral: true });
       }
 
       const current = books.find(b => b.is_current);
