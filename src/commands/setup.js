@@ -410,6 +410,8 @@ function buildStep(step, guildId) {
 async function sendWelcomeMessage(guild) {
   guild.members.me?.setNickname('Verso').catch(() => {});
 
+  await guild.channels.fetch().catch(() => {});
+
   // Try the system channel first, then fall back to first writable text channel
   const channel =
     guild.systemChannel ??
