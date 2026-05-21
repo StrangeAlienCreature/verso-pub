@@ -113,6 +113,17 @@ db.exec(`
     added_by  TEXT    NOT NULL,
     added_at  DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  -- Discussion threads tied to reading milestones
+  CREATE TABLE IF NOT EXISTS discussion_threads (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id      TEXT    NOT NULL,
+    book_id       INTEGER NOT NULL REFERENCES books(id),
+    thread_id     TEXT    NOT NULL,
+    milestone_pct REAL,
+    label         TEXT,
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // ─── Books ───────────────────────────────────────────────────────────────────
