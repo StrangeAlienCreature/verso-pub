@@ -321,6 +321,19 @@ const threadQueries = {
   clearForBook: db.prepare(`DELETE FROM discussion_threads WHERE guild_id = ? AND book_id = ?`),
 };
 
+// Replace books.remove with a transaction that cascades to all dependent tables
+const removeBook = db.transaction((id, guild_id) => {
+  db.prepare('DELETE FROM poll_options WHERE book_id = ?').run(id);
+  db.prepare('DELETE FROM progress WHERE book_id = ?').run(id);
+  db.prepare('DELETE FROM progress_log WHERE book_id = ?').run(id);
+  db.prepare('DELETE FROM ratings WHERE book_id = ?').run(id);
+  db.prepare('DELETE FROM dnf WHERE book_id = ?').run(id);
+  db.prepare('DELETE FROM content_warnings WHERE book_id = ?').run(id);
+  db.prepare('DELETE FROM discussion_threads WHERE book_id = ?').run(id);
+  return db.prepare('DELETE FROM books WHERE id = ? AND guild_id = ?').run(id, guild_id);
+});
+bookQueries.remove = { run: removeBook };
+
 // patch existing exports
 Object.assign(module.exports, {
   ratings: ratingQueries,
