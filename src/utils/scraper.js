@@ -233,18 +233,20 @@ async function scrapeBookFromUrl(url) {
 
   if (!title || title.length < 2) throw new Error('Could not extract a book title from that URL.');
 
-  // Supplement missing description via Google Books
-  if (!description && title) {
+  // Supplement missing or short description via Google Books
+  if ((!description || description.length < 200) && title) {
     const q = [title, author].filter(Boolean).join(' ');
     const gbData = await fetchGoogleBooks(q).catch(() => null);
-    if (gbData?.description) description = gbData.description;
+    if (gbData?.description && gbData.description.length > (description?.length ?? 0)) {
+      description = gbData.description;
+    }
   }
 
   return {
     title:       title.slice(0, 200),
     author:      author.slice(0, 200) || 'Unknown Author',
     coverUrl,
-    description: description ? description.slice(0, 600) : null,
+    description: description ? description.slice(0, 1200) : null,
     totalPages,
     genres:      [],
     sourceUrl:   url,
@@ -298,13 +300,21 @@ async function fetchBookByIsbn(raw) {
   const olData = await fetchOpenLibrary(isbn).catch(() => null);
   if (olData) {
     if (!olData.description) {
-      const gbData = await fetchGoogleBooks(`isbn:${isbn}`).catch(() => null);
-      if (gbData?.description) olData.description = gbData.description;
+      const gbIsbn = await fetchGoogleBooks(`isbn:${isbn}`).catch(() => null);
+      if (gbIsbn?.description) {
+        olData.description = gbIsbn.description;
+      } else if (olData.title) {
+        const gbTitle = await fetchGoogleBooks([olData.title, olData.author].filter(Boolean).join(' ')).catch(() => null);
+        if (gbTitle?.description) olData.description = gbTitle.description;
+      }
     }
     return olData;
   }
 
-  return fetchGoogleBooks(`isbn:${isbn}`);
+  const gbData = await fetchGoogleBooks(`isbn:${isbn}`).catch(() => null);
+  if (gbData) return gbData;
+
+  return null;
 }
 
 module.exports = { scrapeBookFromUrl, detectPlatform, fetchGoodreadsCurrentlyReading, fetchBookByIsbn };

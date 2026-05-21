@@ -148,7 +148,7 @@ module.exports = {
       if (bookData.totalPages) embed.addFields({ name: 'Pages', value: `${bookData.totalPages}`, inline: true });
       const genreText = formatGenres(bookData.genres);
       if (genreText) embed.addFields({ name: 'Genres', value: genreText, inline: false });
-      const descText = truncateLines(bookData.description, 5);
+      const descText = truncateLines(bookData.description, 15);
       if (descText) embed.setDescription(descText);
       if (bookData.coverUrl) embed.setThumbnail(bookData.coverUrl);
 
@@ -265,7 +265,7 @@ function buildBookEmbed(book, title) {
   if (book.total_pages) embed.addFields({ name: 'Pages', value: `${book.total_pages}`, inline: true });
   const genreText = formatGenres(book.genres);
   if (genreText) embed.addFields({ name: 'Genres', value: genreText, inline: false });
-  const descText = truncateLines(book.description, 5);
+  const descText = truncateLines(book.description, 15);
   if (descText) embed.setDescription(descText);
   if (book.cover_url)  embed.setThumbnail(book.cover_url);
   if (book.source_url) embed.addFields({ name: 'Link', value: `[View Book](${book.source_url})`, inline: false });
